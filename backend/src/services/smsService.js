@@ -1,23 +1,28 @@
-// src/services/smsService.js - DÜZELTİLMİŞ VERSİYON
+// src/services/smsService.js
 const axios = require('axios');
 const { SMSCampaign, SMSMessage, User, BalanceTransaction } = require('../models');
 
 class SMSService {
   constructor() {
-    this.apiKey = process.env.TURKEYSMS_API_KEY;
-    this.baseURL = process.env.TURKEYSMS_BASE_URL;
+    this.apiKey = process.env.TURKEYSMS_API_KEY || '1ab9810ca3fb3f871dc130176019ee14';
+    this.baseURL = process.env.TURKEYSMS_BASE_URL || 'https://turkeysms.com.tr';
+    this.defaultTitle = process.env.DEFAULT_SMS_TITLE || '08509449683';
+
+    // Endpoints
+    this.SINGLE_ENDPOINT = '/api/v3/gonder/add-content';
+    this.BULK_ENDPOINT   = '/api/v3/gruba-gonder/post/tek-metin-gonderimi';
   }
 
   // SMS maliyet hesaplama
   calculateSMSCost(messageText, recipientCount) {
     const messageLength = messageText.length;
-    const baseCost = 0.05; // 5 kuruş per SMS
+    const baseCost = 0.01; // 1 kuruş per SMS (sizin fiyatınıza göre ayarlayın)
     const lengthMultiplier = Math.ceil(messageLength / 160);
     const totalCost = recipientCount * baseCost * lengthMultiplier;
     
     return {
       perSMS: baseCost * lengthMultiplier,
-      totalCost: totalCost,
+      totalCost,
       messageCount: lengthMultiplier
     };
   }
@@ -29,34 +34,38 @@ class SMSService {
     return phoneRegex.test(phoneNumber.replace(/\s+/g, ''));
   }
 
+  // Kullanıcının SMS title'ını al
+  async getUserSMSTitle(user) {
+    return user.smsTitle || this.defaultTitle;
+  }
+
+  // Kullanıcının API key'ini al
+  async getUserAPIKey(user) {
+    return user.smsApiKey || this.apiKey;
+  }
+
   // Tekli SMS gönderimi
   async sendSingleSMS(userId, data) {
     try {
       const { title, text, recipient, reportEnabled = true } = data;
-
-      // Kullanıcıyı bul
       const user = await User.findByPk(userId);
-      if (!user) {
-        throw new Error('Kullanıcı bulunamadı');
+      if (!user) throw new Error('Kullanıcı bulunamadı');
+
+      const cleanPhone = recipient.replace(/\s+/g, '');
+      if (!this.validatePhoneNumber(cleanPhone)) {
+        throw new Error('Geçersiz telefon numarası formatı. Format: 90XXXXXXXXXX');
       }
 
-      // Telefon numarasını doğrula
-      const cleanPhoneNumber = recipient.replace(/\s+/g, '');
-      if (!this.validatePhoneNumber(cleanPhoneNumber)) {
-        throw new Error('Geçersiz telefon numarası formatı');
-      }
-
-      // Maliyeti hesapla
       const costInfo = this.calculateSMSCost(text, 1);
-      
-      // Bakiye kontrolü
       if (user.balance < costInfo.totalCost) {
         throw new Error('Yetersiz bakiye');
       }
 
-      // Kampanya oluştur
+      const smsTitle = await this.getUserSMSTitle(user);
+      const apiKey   = await this.getUserAPIKey(user);
+
       const campaign = await SMSCampaign.create({
-        userId: userId,
+        userId,
         title: title || 'Tekli SMS',
         messageText: text,
         totalRecipients: 1,
@@ -64,97 +73,95 @@ class SMSService {
         status: 'sending'
       });
 
-      // SMS mesajı kaydı oluştur
       const smsMessage = await SMSMessage.create({
         campaignId: campaign.id,
-        phoneNumber: cleanPhoneNumber,
+        phoneNumber: cleanPhone,
         messageText: text,
         cost: costInfo.perSMS,
         status: 'pending'
       });
 
-      try {
-        // SMS API'sine istek gönder
-        const apiData = {
-          api_key: this.apiKey,
-          title: title,
-          text: text,
-          sentto: [cleanPhoneNumber],
-          report: reportEnabled ? 1 : 0,
-          sms_lang: 1,
-          response_type: 'json'
-        };
+      const apiData = {
+        api_key: apiKey,
+        title: smsTitle,
+        text,
+        sentto: [cleanPhone],
+        report: 1,
+        sms_lang: 1,
+        response_type: 'json'
+      };
 
-        const response = await axios.post(
-          `${this.baseURL}/gruba-gonder/post/tek-metin-gonderimi`,
-          apiData,
-          {
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            timeout: 30000
-          }
-        );
+      console.log('🚀 TurkeySMS Single API Request:', {
+        url: `${this.baseURL}${this.SINGLE_ENDPOINT}`,
+        data: { ...apiData, api_key: apiKey.substring(0, 8) + '...' }
+      });
 
-        // API yanıtını kontrol et
-        if (response.data && response.data.status === 'success') {
-          // Başarılı gönderim
-          await smsMessage.update({
-            status: 'sent',
-            sentAt: new Date(),
-            deliveryReportId: response.data.report_id || null
-          });
-
-          await campaign.update({
-            status: 'completed',
-            successfulSends: 1
-          });
-
-          // Bakiyeden düş
-          await user.update({
-            balance: parseFloat(user.balance) - costInfo.totalCost
-          });
-
-          // Bakiye işlemi kaydet
-          await BalanceTransaction.create({
-            userId: userId,
-            transactionType: 'debit',
-            amount: costInfo.totalCost,
-            description: `SMS gönderimi - ${cleanPhoneNumber}`,
-            referenceId: campaign.id
-          });
-
-          return {
-            success: true,
-            message: 'SMS başarıyla gönderildi',
-            campaignId: campaign.id,
-            messageId: smsMessage.id,
-            cost: costInfo.totalCost,
-            reportId: response.data.report_id
-          };
-
-        } else {
-          throw new Error(response.data?.message || 'SMS gönderim hatası');
+      const response = await axios.post(
+        `${this.baseURL}${this.SINGLE_ENDPOINT}`,
+        apiData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          responseType: 'json',
+          timeout: 30000
         }
+      );
 
-      } catch (apiError) {
-        // API hatası durumunda
+      console.log('📥 TurkeySMS Single API Response:', response.data);
+
+      const resultCode = response.data.result;
+      if (response.data && Number(resultCode) === 1) {
         await smsMessage.update({
-          status: 'failed',
-          errorMessage: apiError.message
+          status: 'sent',
+          sentAt: new Date(),
+          deliveryReportId: response.data.rapor_id || null
         });
-
         await campaign.update({
-          status: 'failed',
-          failedSends: 1
+          status: 'completed',
+          successfulSends: 1
+        });
+        await user.update({ balance: parseFloat(user.balance) - costInfo.totalCost });
+        await BalanceTransaction.create({
+          userId,
+          transactionType: 'debit',
+          amount: costInfo.totalCost,
+          description: `SMS gönderimi - ${cleanPhone}`,
+          referenceId: campaign.id
         });
 
-        throw new Error(`SMS gönderim hatası: ${apiError.message}`);
+        return {
+          success: true,
+          message: 'SMS başarıyla gönderildi',
+          campaignId: campaign.id,
+          messageId: smsMessage.id,
+          cost: costInfo.totalCost,
+          reportId: response.data.rapor_id,
+          resultCode: response.data.result_code,
+          totalNumbers: response.data.total_mobile_num,
+          smsCount: response.data.number_of_sms
+        };
+      } else {
+        throw new Error(response.data.result_message || 'SMS gönderim hatası');
       }
 
-    } catch (error) {
-      console.error('SMS gönderim hatası:', error);
-      throw error;
+    } catch (apiError) {
+      console.error('❌ TurkeySMS Single API Error Details:', {
+        url: apiError.config?.url,
+        status: apiError.response?.status,
+        data: apiError.response?.data || apiError.message
+      });
+      // Update records on failure
+      await SMSMessage.update(
+        { status: 'failed', errorMessage: apiError.response?.data?.result_message || apiError.message },
+        { where: { /* campaign/message identifiers */ } }
+      );
+      await SMSCampaign.update(
+        { status: 'failed', failedSends: 1 },
+        { where: { /* campaign id */ } }
+      );
+      throw new Error(`SMS gönderim hatası: ${apiError.response?.data?.result_message || apiError.message}`);
     }
   }
 
@@ -162,41 +169,31 @@ class SMSService {
   async sendBulkSMS(userId, data) {
     try {
       const { title, text, recipients, reportEnabled = true } = data;
-
-      // Kullanıcıyı bul
       const user = await User.findByPk(userId);
-      if (!user) {
-        throw new Error('Kullanıcı bulunamadı');
-      }
+      if (!user) throw new Error('Kullanıcı bulunamadı');
 
-      // Telefon numaralarını doğrula ve temizle
       const validRecipients = [];
       const invalidNumbers = [];
-
-      recipients.forEach(number => {
-        const cleanNumber = number.replace(/\s+/g, '');
-        if (this.validatePhoneNumber(cleanNumber)) {
-          validRecipients.push(cleanNumber);
-        } else {
-          invalidNumbers.push(number);
-        }
+      recipients.forEach(num => {
+        const clean = num.replace(/\s+/g, '');
+        this.validatePhoneNumber(clean)
+          ? validRecipients.push(clean)
+          : invalidNumbers.push(num);
       });
-
-      if (validRecipients.length === 0) {
+      if (!validRecipients.length) {
         throw new Error('Geçerli telefon numarası bulunamadı');
       }
 
-      // Maliyeti hesapla
       const costInfo = this.calculateSMSCost(text, validRecipients.length);
-      
-      // Bakiye kontrolü
       if (user.balance < costInfo.totalCost) {
         throw new Error(`Yetersiz bakiye. Gerekli: ${costInfo.totalCost} TL, Mevcut: ${user.balance} TL`);
       }
 
-      // Kampanya oluştur
+      const smsTitle = await this.getUserSMSTitle(user);
+      const apiKey   = await this.getUserAPIKey(user);
+
       const campaign = await SMSCampaign.create({
-        userId: userId,
+        userId,
         title: title || 'Toplu SMS',
         messageText: text,
         totalRecipients: validRecipients.length,
@@ -204,12 +201,11 @@ class SMSService {
         status: 'sending'
       });
 
-      // SMS mesajları kayıtlarını oluştur
       const smsMessages = await Promise.all(
         validRecipients.map(phoneNumber =>
           SMSMessage.create({
             campaignId: campaign.id,
-            phoneNumber: phoneNumber,
+            phoneNumber,
             messageText: text,
             cost: costInfo.perSMS,
             status: 'pending'
@@ -217,97 +213,98 @@ class SMSService {
         )
       );
 
-      try {
-        // SMS API'sine istek gönder
-        const apiData = {
-          api_key: this.apiKey,
-          title: title,
-          text: text,
-          sentto: validRecipients,
-          report: reportEnabled ? 1 : 0,
-          sms_lang: 1,
-          response_type: 'json'
-        };
+      const apiData = {
+        api_key: apiKey,
+        title: smsTitle,
+        text,
+        sentto: validRecipients,
+        report: 1,
+        sms_lang: 1,
+        response_type: 'json'
+      };
 
-        const response = await axios.post(
-          `${this.baseURL}/gruba-gonder/post/tek-metin-gonderimi`,
-          apiData,
-          {
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            timeout: 60000
-          }
-        );
+      console.log('🚀 TurkeySMS Bulk API Request:', {
+        url: `${this.baseURL}${this.BULK_ENDPOINT}`,
+        recipientCount: validRecipients.length,
+        data: { ...apiData, api_key: apiKey.substring(0, 8) + '...' }
+      });
 
-        // API yanıtını kontrol et
-        if (response.data && response.data.status === 'success') {
-          // Başarılı gönderim
-          await Promise.all(
-            smsMessages.map(msg =>
-              msg.update({
-                status: 'sent',
-                sentAt: new Date(),
-                deliveryReportId: response.data.report_id || null
-              })
-            )
-          );
-
-          await campaign.update({
-            status: 'completed',
-            successfulSends: validRecipients.length
-          });
-
-          // Bakiyeden düş
-          await user.update({
-            balance: parseFloat(user.balance) - costInfo.totalCost
-          });
-
-          // Bakiye işlemi kaydet
-          await BalanceTransaction.create({
-            userId: userId,
-            transactionType: 'debit',
-            amount: costInfo.totalCost,
-            description: `Toplu SMS gönderimi - ${validRecipients.length} alıcı`,
-            referenceId: campaign.id
-          });
-
-          return {
-            success: true,
-            message: 'SMS\'ler başarıyla gönderildi',
-            campaignId: campaign.id,
-            totalSent: validRecipients.length,
-            invalidNumbers: invalidNumbers,
-            cost: costInfo.totalCost,
-            reportId: response.data.report_id
-          };
-
-        } else {
-          throw new Error(response.data?.message || 'Toplu SMS gönderim hatası');
+      const response = await axios.post(
+        `${this.baseURL}${this.BULK_ENDPOINT}`,
+        apiData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          responseType: 'json',
+          timeout: 60000
         }
+      );
 
-      } catch (apiError) {
-        // API hatası durumunda tüm mesajları failed yap
+      console.log('📥 TurkeySMS Bulk API Response:', response.data);
+
+      if (response.data && Number(response.data.result) === 1) {
         await Promise.all(
           smsMessages.map(msg =>
             msg.update({
-              status: 'failed',
-              errorMessage: apiError.message
+              status: 'sent',
+              sentAt: new Date(),
+              deliveryReportId: response.data.rapor_id || null
             })
           )
         );
-
         await campaign.update({
-          status: 'failed',
-          failedSends: validRecipients.length
+          status: 'completed',
+          successfulSends: validRecipients.length
+        });
+        await user.update({ balance: parseFloat(user.balance) - costInfo.totalCost });
+        await BalanceTransaction.create({
+          userId,
+          transactionType: 'debit',
+          amount: costInfo.totalCost,
+          description: `Toplu SMS gönderimi - ${validRecipients.length} alıcı`,
+          referenceId: campaign.id
         });
 
-        throw new Error(`Toplu SMS gönderim hatası: ${apiError.message}`);
+        return {
+          success: true,
+          message: 'SMS\'ler başarıyla gönderildi',
+          campaignId: campaign.id,
+          totalSent: validRecipients.length,
+          invalidNumbers,
+          cost: costInfo.totalCost,
+          reportId: response.data.rapor_id,
+          resultCode: response.data.result_code,
+          totalNumbers: response.data.total_mobile_num,
+          smsCount: response.data.number_of_sms
+        };
+      } else {
+        throw new Error(response.data.result_message || 'Toplu SMS gönderim hatası');
       }
 
-    } catch (error) {
-      console.error('Toplu SMS gönderim hatası:', error);
-      throw error;
+    } catch (apiError) {
+      console.error('❌ TurkeySMS Bulk API Error Details:', {
+        url: apiError.config?.url,
+        status: apiError.response?.status,
+        data: apiError.response?.data || apiError.message
+      });
+      // Mark all messages as failed
+      await Promise.all(
+        apiError.campaignId
+          ? smsMessages.map(msg =>
+              msg.update({
+                status: 'failed',
+                errorMessage: apiError.response?.data?.result_message || apiError.message
+              })
+            )
+          : []
+      );
+      await SMSCampaign.update(
+        { status: 'failed', failedSends: validRecipients.length },
+        { where: { id: apiError.campaignId || campaign.id } }
+      );
+      throw new Error(`Toplu SMS gönderim hatası: ${apiError.response?.data?.result_message || apiError.message}`);
     }
   }
 
@@ -315,71 +312,71 @@ class SMSService {
   async getDeliveryReport(reportId) {
     try {
       const response = await axios.get(
-        `${this.baseURL}/rapor/get/${reportId}`,
+        `${this.baseURL}/api/v3/rapor/get/${reportId}`,
         {
           params: {
             api_key: this.apiKey,
             response_type: 'json'
           },
+          headers: {
+            'Accept': 'application/json'
+          },
+          responseType: 'json',
           timeout: 10000
         }
       );
-
       return response.data;
-
     } catch (error) {
-      console.error('Delivery raporu alma hatası:', error);
+      console.error('❌ Delivery raporu alma hatası:', error);
       throw new Error('Delivery raporu alınamadı');
     }
   }
 
-  // Kampanya raporu güncelleme
-  async updateCampaignReport(campaignId) {
+  // Test SMS gönderimi
+  async sendTestSMS(phoneNumber, message = 'Test mesajı - TurkeySMS API çalışıyor!') {
     try {
-      const campaign = await SMSCampaign.findByPk(campaignId, {
-        include: [{
-          model: SMSMessage,
-          as: 'messages'
-        }]
-      });
-
-      if (!campaign) {
-        throw new Error('Kampanya bulunamadı');
-      }
-
-      // Delivery raporunu al (eğer report ID varsa)
-      const reportId = campaign.messages[0]?.deliveryReportId;
-      if (reportId) {
-        const deliveryReport = await this.getDeliveryReport(reportId);
-        
-        // Rapor verilerine göre SMS durumlarını güncelle
-        if (deliveryReport && deliveryReport.data) {
-          // Bu kısım SMS provider'ın rapor formatına göre özelleştirilmeli
-          // Örnek güncelleme mantığı
-          const reportData = deliveryReport.data;
-          
-          for (const message of campaign.messages) {
-            // Raporda bu numaranın durumunu bul
-            const messageReport = reportData.find(r => r.number === message.phoneNumber);
-            if (messageReport) {
-              await message.update({
-                status: messageReport.status === 'delivered' ? 'delivered' : 'failed',
-                deliveredAt: messageReport.status === 'delivered' ? new Date() : null,
-                errorMessage: messageReport.error || null
-              });
-            }
-          }
-        }
-      }
-
-      return {
-        success: true,
-        message: 'Kampanya raporu güncellendi'
+      const apiData = {
+        api_key: this.apiKey,
+        title: this.defaultTitle,
+        text: message,
+        sentto: [phoneNumber],
+        report: 1,
+        sms_lang: 1,
+        response_type: 'json'
       };
 
+      console.log('🧪 Test SMS Gönderimi:', {
+        url: `${this.baseURL}${this.SINGLE_ENDPOINT}`,
+        phoneNumber,
+        message
+      });
+
+      const response = await axios.post(
+        `${this.baseURL}${this.SINGLE_ENDPOINT}`,
+        apiData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          responseType: 'json',
+          timeout: 30000
+        }
+      );
+
+      console.log('✅ Test SMS Response:', response.data);
+
+      return {
+        success: Number(response.data.result) === 1,
+        data: response.data,
+        message: response.data.result_message || 'Test SMS gönderildi'
+      };
     } catch (error) {
-      console.error('Kampanya raporu güncelleme hatası:', error);
-      throw error;
+      console.error('❌ Test SMS Hatası:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data || error.message
+      };
     }
   }
 }

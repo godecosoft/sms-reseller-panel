@@ -494,4 +494,105 @@ router.get('/sms-reports', async (req, res) => {
   }
 });
 
+// src/routes/admin.js - SMS ayarları eklendi (sadece yeni endpoint'ler)
+
+// SMS ayarlarını güncelle endpoint'ini ekle (mevcut dosyanın sonuna)
+
+// SMS ayarlarını güncelleme
+router.put('/users/:id/sms-settings', [
+  body('smsTitle').optional().isLength({ max: 20 }).withMessage('SMS başlığı maksimum 20 karakter olmalı'),
+  body('smsApiKey').optional().isLength({ min: 10 }).withMessage('SMS API key en az 10 karakter olmalı')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Geçersiz veriler',
+        details: errors.array()
+      });
+    }
+
+    const { id } = req.params;
+    const { smsTitle, smsApiKey } = req.body;
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({
+        error: 'Kullanıcı bulunamadı'
+      });
+    }
+
+    // Admin kullanıcısının SMS ayarlarını düzenlemeyi engelle
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        error: 'Admin kullanıcısının SMS ayarları düzenlenemez'
+      });
+    }
+
+    const updateData = {};
+    if (smsTitle !== undefined) updateData.smsTitle = smsTitle;
+    if (smsApiKey !== undefined) updateData.smsApiKey = smsApiKey;
+
+    await user.update(updateData);
+
+    res.json({
+      message: 'SMS ayarları başarıyla güncellendi',
+      smsSettings: {
+        smsTitle: user.smsTitle,
+        smsApiKey: user.smsApiKey
+      }
+    });
+
+  } catch (error) {
+    console.error('SMS ayarları güncelleme hatası:', error);
+    res.status(500).json({
+      error: 'SMS ayarları güncellenirken hata oluştu'
+    });
+  }
+});
+
+// Test SMS gönderme endpoint'i
+router.post('/test-sms', [
+  body('phoneNumber').matches(/^90[0-9]{10}$/).withMessage('Geçersiz telefon numarası formatı'),
+  body('message').optional().isLength({ min: 1, max: 160 }).withMessage('Mesaj 1-160 karakter arası olmalı')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Geçersiz veriler',
+        details: errors.array()
+      });
+    }
+
+    const { phoneNumber, message } = req.body;
+    const smsService = require('../services/smsService');
+
+    console.log('🧪 Admin test SMS gönderimi:', { phoneNumber, message });
+
+    const result = await smsService.sendTestSMS(phoneNumber, message);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Test SMS başarıyla gönderildi',
+        data: result.data
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: 'Test SMS gönderilemedi',
+        details: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Test SMS hatası:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Test SMS gönderilirken hata oluştu'
+    });
+  }
+});
+
 module.exports = router;

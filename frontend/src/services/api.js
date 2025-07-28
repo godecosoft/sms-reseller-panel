@@ -45,6 +45,9 @@ export const authAPI = {
 };
 
 // Admin servisleri
+// src/services/api.js - Test SMS endpoint'i eklendi (sadece eklenen kısım)
+
+// Admin servisleri - SMS ayarları eklendi
 export const adminAPI = {
   getDashboardStats: () => api.get('/admin/dashboard-stats'),
   getUsers: (params) => api.get('/admin/users', { params }),
@@ -53,6 +56,10 @@ export const adminAPI = {
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
   addBalance: (id, data) => api.post(`/admin/users/${id}/add-balance`, data),
   getSMSReports: (params) => api.get('/admin/sms-reports', { params }),
+  
+  // YENİ SMS AYARLARI ENDPOİNTLERİ
+  updateUserSMSSettings: (id, data) => api.put(`/admin/users/${id}/sms-settings`, data),
+  sendTestSMS: (data) => api.post('/admin/test-sms', data),
 };
 
 // User servisleri
@@ -68,6 +75,8 @@ export const userAPI = {
   calculateCost: (data) => api.post('/user/calculate-cost', data),
   getBalanceTransactions: (params) => api.get('/user/balance-transactions', { params }),
 };
+
+
 
 export default api;
 

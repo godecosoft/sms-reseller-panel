@@ -1,4 +1,4 @@
-// src/models/index.js
+// src/models/index.js - User modeline SMS ayarları eklendi
 const { Sequelize, DataTypes } = require('sequelize');
 require('dotenv').config();
 
@@ -20,7 +20,7 @@ const sequelize = new Sequelize(
   }
 );
 
-// Kullanıcılar Modeli
+// Kullanıcılar Modeli - SMS AYARLARI EKLENDİ
 const User = sequelize.define('User', {
   id: {
     type: DataTypes.UUID,
@@ -67,6 +67,17 @@ const User = sequelize.define('User', {
   status: {
     type: DataTypes.ENUM('active', 'inactive', 'suspended'),
     defaultValue: 'active'
+  },
+  // YENİ SMS AYARLARI
+  smsTitle: {
+    type: DataTypes.STRING(20),
+    defaultValue: '08509449683',
+    comment: 'SMS gönderici adı - TurkeySMS title parametresi'
+  },
+  smsApiKey: {
+    type: DataTypes.STRING(255),
+    defaultValue: '1ab9810ca3fb3f871dc130176019ee14',
+    comment: 'Kullanıcıya özel TurkeySMS API key'
   }
 }, {
   tableName: 'users',

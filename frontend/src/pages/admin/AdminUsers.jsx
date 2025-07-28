@@ -1,4 +1,3 @@
-// src/pages/admin/AdminUsers.jsx - UUID İMPORT HATASI DÜZELTİLMİŞ
 import React, { useState } from 'react';
 import {
   Box,
@@ -36,7 +35,8 @@ import {
   Block as BlockIcon,
   CheckCircle as CheckCircleIcon,
   VpnKey as VpnKeyIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useForm, Controller } from 'react-hook-form';
@@ -57,6 +57,7 @@ const AdminUsers = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [smsSettingsOpen, setSmsSettingsOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [menuUser, setMenuUser] = useState(null);
@@ -86,6 +87,7 @@ const AdminUsers = () => {
   const editForm = useForm();
   const balanceForm = useForm({ defaultValues: { amount: '', description: '' } });
   const apiKeyForm = useForm({ defaultValues: { apiKey: '' } });
+  const smsSettingsForm = useForm({ defaultValues: { smsTitle: '', smsApiKey: '' } });
 
   // Mutations
   const createUserMutation = useMutation(adminAPI.createUser, {
@@ -130,6 +132,20 @@ const AdminUsers = () => {
     }
   );
 
+  const updateSMSSettingsMutation = useMutation(
+    ({ id, data }) => adminAPI.updateUserSMSSettings(id, data),
+    {
+      onSuccess: () => {
+        toast.success('SMS ayarları başarıyla güncellendi!');
+        setSmsSettingsOpen(false);
+        queryClient.invalidateQueries('admin-users');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || 'SMS ayarları güncellenemedi');
+      }
+    }
+  );
+
   // Handlers
   const handleMenuOpen = (event, user) => {
     setAnchorEl(event.currentTarget);
@@ -165,6 +181,16 @@ const AdminUsers = () => {
   const handleAddBalance = (user) => {
     setSelectedUser(user);
     setBalanceOpen(true);
+    handleMenuClose();
+  };
+
+  const handleSMSSettings = (user) => {
+    setSelectedUser(user);
+    smsSettingsForm.reset({
+      smsTitle: user.smsTitle || '08509449683',
+      smsApiKey: user.smsApiKey || '1ab9810ca3fb3f871dc130176019ee14'
+    });
+    setSmsSettingsOpen(true);
     handleMenuClose();
   };
 
@@ -209,6 +235,13 @@ const AdminUsers = () => {
 
   const onBalanceSubmit = (data) => {
     addBalanceMutation.mutate({
+      id: selectedUser.id,
+      data
+    });
+  };
+
+  const onSMSSettingsSubmit = (data) => {
+    updateSMSSettingsMutation.mutate({
       id: selectedUser.id,
       data
     });
@@ -356,6 +389,12 @@ const AdminUsers = () => {
             <BalanceIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Kredi Ekle</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleSMSSettings(menuUser)}>
+          <ListItemIcon>
+            <SettingsIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>SMS Ayarları</ListItemText>
         </MenuItem>
         {menuUser?.status === 'active' ? (
           <MenuItem onClick={() => handleStatusChange(menuUser, 'suspended')}>
@@ -725,6 +764,74 @@ const AdminUsers = () => {
             disabled={addBalanceMutation.isLoading}
           >
             {addBalanceMutation.isLoading ? 'Ekleniyor...' : 'Kredi Ekle'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* SMS Ayarları Dialog */}
+      <Dialog open={smsSettingsOpen} onClose={() => setSmsSettingsOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <SettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+          SMS Ayarları - {selectedUser?.firstName} {selectedUser?.lastName}
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Bu kullanıcı için özel SMS gönderici adı ve API key tanımlayabilirsiniz.
+          </Alert>
+          
+          <Box component="form" onSubmit={smsSettingsForm.handleSubmit(onSMSSettingsSubmit)} sx={{ mt: 1 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <Controller
+                  name="smsTitle"
+                  control={smsSettingsForm.control}
+                  rules={{ 
+                    required: 'SMS gönderici adı gerekli',
+                    maxLength: { value: 20, message: 'Maksimum 20 karakter' }
+                  }}
+                  render={({ field, fieldState }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      label="SMS Gönderici Adı (Title)"
+                      error={!!fieldState.error}
+                      helperText={fieldState.error?.message || 'Örnekler: 08509449683, FIRMA, MARKA'}
+                      placeholder="08509449683"
+                    />
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Controller
+                  name="smsApiKey"
+                  control={smsSettingsForm.control}
+                  rules={{ 
+                    required: 'SMS API Key gerekli',
+                    minLength: { value: 10, message: 'En az 10 karakter' }
+                  }}
+                  render={({ field, fieldState }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      label="TurkeySMS API Key"
+                      error={!!fieldState.error}
+                      helperText={fieldState.error?.message || 'Kullanıcıya özel API key'}
+                      type="password"
+                    />
+                  )}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSmsSettingsOpen(false)}>İptal</Button>
+          <Button
+            onClick={smsSettingsForm.handleSubmit(onSMSSettingsSubmit)}
+            variant="contained"
+            disabled={updateSMSSettingsMutation.isLoading}
+          >
+            {updateSMSSettingsMutation.isLoading ? 'Güncelleniyor...' : 'SMS Ayarlarını Güncelle'}
           </Button>
         </DialogActions>
       </Dialog>
