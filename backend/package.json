@@ -1,0 +1,32 @@
+{
+  "name": "sms-reseller-backend",
+  "version": "1.0.0",
+  "description": "SMS Reseller Panel Backend",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "init-db": "node src/database/init.js"
+  },
+  "keywords": ["sms", "reseller", "panel"],
+  "author": "SMS Panel",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "express-rate-limit": "^6.10.0",
+    "express-validator": "^7.0.1",
+    "mysql2": "^3.6.0",
+    "sequelize": "^6.32.1",
+    "axios": "^1.5.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.0",
+    "moment": "^2.29.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
