@@ -1,4 +1,4 @@
-// src/pages/user/UserProfile.jsx - REVİZE EDİLMİŞ VERSİYON (API Key gizli, harcama bilgisi yok)
+// src/pages/user/UserProfile.jsx - KREDİ SİSTEMİNE GÜNCELLENMİŞ
 import React from 'react';
 import {
   Box,
@@ -39,7 +39,7 @@ const UserProfile = () => {
     () => userAPI.getProfile().then(res => res.data)
   );
 
-  // Bakiye hareketleri (sadece kredi yüklemeleri)
+  // Kredi yüklemeleri (sadece kredi yüklemeleri)
   const { data: transactionsData } = useQuery(
     'user-balance-transactions',
     () => userAPI.getBalanceTransactions({ 
@@ -71,6 +71,8 @@ const UserProfile = () => {
   const onSubmit = (data) => {
     updateProfileMutation.mutate(data);
   };
+
+  const currentBalance = Math.floor(parseFloat(user?.balance || 0));
 
   return (
     <Box>
@@ -195,6 +197,24 @@ const UserProfile = () => {
 
         {/* İstatistikler */}
         <Grid item xs={12} md={4}>
+          {/* Kredi Bilgisi */}
+          <Card sx={{ mb: 2 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                💳 Mevcut Krediniz
+              </Typography>
+              
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <Typography variant="h3" color="primary" fontWeight="bold">
+                  {currentBalance}
+                </Typography>
+                <Typography variant="body1" color="text.secondary">
+                  SMS Kredisi
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+
           {/* İstatistikler */}
           <Card sx={{ mb: 2 }}>
             <CardContent>

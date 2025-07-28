@@ -1,4 +1,4 @@
-// src/pages/user/UserSendSMS.jsx - REVİZE EDİLMİŞ VERSİYON
+// src/pages/user/UserSendSMS.jsx - TXT DOSYA UPLOAD + TEK ENDPOİNT
 import React, { useState } from 'react';
 import {
   Box,
@@ -7,8 +7,6 @@ import {
   Typography,
   TextField,
   Button,
-  Tab,
-  Tabs,
   Grid,
   Alert,
   CircularProgress,
@@ -18,32 +16,31 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Chip,
+  Divider,
+  IconButton
 } from '@mui/material';
 import {
   Send as SendIcon,
-  Person as PersonIcon,
-  People as PeopleIcon,
   Info as InfoIcon,
-  Schedule as ScheduleIcon
+  Schedule as ScheduleIcon,
+  Upload as UploadIcon,
+  Delete as DeleteIcon,
+  PhoneAndroid as PhoneIcon,
+  TextFields as TextFieldsIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { useMutation, useQuery } from 'react-query';
 import { toast } from 'react-toastify';
 import { userAPI } from '../../services/api';
 
-function TabPanel({ children, value, index, ...other }) {
-  return (
-    <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
-    </div>
-  );
-}
-
 const UserSendSMS = () => {
-  const [tabValue, setTabValue] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [currentForm, setCurrentForm] = useState(null);
+  const [recipients, setRecipients] = useState([]);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [fileContent, setFileContent] = useState('');
 
   // Balance bilgisi
   const { data: balanceData } = useQuery(
@@ -52,17 +49,8 @@ const UserSendSMS = () => {
     { refetchInterval: 30000 }
   );
 
-  // Tekli SMS formu
-  const singleForm = useForm({
-    defaultValues: {
-      text: '',
-      recipient: '',
-      isScheduled: false
-    }
-  });
-
-  // Toplu SMS formu
-  const bulkForm = useForm({
+  // SMS formu
+  const smsForm = useForm({
     defaultValues: {
       text: '',
       recipients: '',
@@ -78,65 +66,128 @@ const UserSendSMS = () => {
     }
   });
 
-  // SMS gönderme mutations
-  const sendSingleMutation = useMutation(userAPI.sendSMS, {
+  // SMS gönderme mutation - TEK ENDPOINT
+  const sendSMSMutation = useMutation(userAPI.sendSMS, {
     onSuccess: (data) => {
-      toast.success('SMS başarıyla gönderildi!');
-      singleForm.reset();
+      if (data.success) {
+        toast.success(`${data.validSent} SMS başarıyla gönderildi!`);
+        if (data.invalidNumbers?.length > 0) {
+          toast.warning(`${data.invalidNumbers.length} geçersiz numara atlandı`);
+        }
+        smsForm.reset();
+        setRecipients([]);
+        setUploadedFile(null);
+        setFileContent('');
+      } else {
+        toast.error(data.message || 'SMS gönderilemedi');
+      }
     },
     onError: (error) => {
       toast.error(error.response?.data?.error || 'SMS gönderilemedi');
     }
   });
 
-  const sendBulkMutation = useMutation(userAPI.sendBulkSMS, {
-    onSuccess: (data) => {
-      toast.success(`${data.totalSent} SMS başarıyla gönderildi!`);
-      if (data.invalidNumbers?.length > 0) {
-        toast.warning(`${data.invalidNumbers.length} geçersiz numara atlandı`);
+  // TXT dosya yükleme
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    
+    if (!file) return;
+
+    // Dosya türü kontrolü
+    if (!file.name.toLowerCase().endsWith('.txt')) {
+      toast.error('Sadece .txt dosyaları desteklenir');
+      return;
+    }
+
+    // Dosya boyutu kontrolü (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Dosya boyutu 10MB\'dan küçük olmalı');
+      return;
+    }
+
+    setUploadedFile(file);
+
+    // Dosya içeriğini oku
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      const numbers = content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      // Maksimum 100.000 numara kontrolü
+      if (numbers.length > 100000) {
+        toast.error('Maksimum 100.000 numara yüklenebilir');
+        setUploadedFile(null);
+        return;
       }
-      bulkForm.reset();
-    },
-    onError: (error) => {
-      toast.error(error.response?.data?.error || 'Toplu SMS gönderilemedi');
-    }
-  });
 
-  const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
+      setFileContent(content);
+      setRecipients(numbers);
+      
+      // Formdaki recipients alanını güncelle
+      smsForm.setValue('recipients', numbers.join('\n'));
+      
+      toast.success(`${numbers.length} numara yüklendi`);
+    };
+
+    reader.onerror = () => {
+      toast.error('Dosya okunurken hata oluştu');
+      setUploadedFile(null);
+    };
+
+    reader.readAsText(file, 'UTF-8');
   };
 
-  const onSingleSubmit = (data) => {
-    if (data.isScheduled) {
-      setCurrentForm({ type: 'single', data });
-      setScheduleOpen(true);
-    } else {
-      sendSingleMutation.mutate({
-        text: data.text,
-        recipient: data.recipient
-      });
-    }
+  // Dosyayı temizle
+  const clearFile = () => {
+    setUploadedFile(null);
+    setFileContent('');
+    setRecipients([]);
+    smsForm.setValue('recipients', '');
   };
 
-  const onBulkSubmit = (data) => {
-    const recipients = data.recipients
+  // Manuel numara girişi
+  const handleManualInput = (value) => {
+    const numbers = value
       .split('\n')
-      .map(num => num.trim())
-      .filter(num => num.length > 0);
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    
+    setRecipients(numbers);
+  };
+
+  // SMS gönderimi
+  const onSubmit = (data) => {
+    // Recipients'ı hazırla
+    let recipientList = [];
+    
+    if (recipients.length > 0) {
+      recipientList = recipients;
+    } else if (data.recipients) {
+      recipientList = data.recipients
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    }
+
+    if (recipientList.length === 0) {
+      toast.error('En az bir telefon numarası gerekli');
+      return;
+    }
+
+    if (recipientList.length > 100000) {
+      toast.error('Maksimum 100.000 numara gönderilebilir');
+      return;
+    }
 
     if (data.isScheduled) {
-      setCurrentForm({ 
-        type: 'bulk', 
-        data: {
-          text: data.text,
-          recipients
-        }
-      });
       setScheduleOpen(true);
     } else {
-      sendBulkMutation.mutate({
+      sendSMSMutation.mutate({
         text: data.text,
-        recipients
+        recipients: recipientList
       });
     }
   };
@@ -144,28 +195,18 @@ const UserSendSMS = () => {
   const onScheduleSubmit = (scheduleData) => {
     const scheduledDateTime = `${scheduleData.scheduledDate}T${scheduleData.scheduledTime}`;
     
-    const smsData = {
-      ...currentForm.data,
+    sendSMSMutation.mutate({
+      text: smsForm.getValues('text'),
+      recipients: recipients,
       scheduledAt: scheduledDateTime
-    };
-
-    if (currentForm.type === 'single') {
-      sendSingleMutation.mutate(smsData);
-    } else {
-      sendBulkMutation.mutate(smsData);
-    }
+    });
 
     setScheduleOpen(false);
     scheduleForm.reset();
-    setCurrentForm(null);
   };
 
-  // Minimum tarih (şu andan 5 dakika sonra)
-  const getMinDateTime = () => {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + 5);
-    return now.toISOString().slice(0, 16);
-  };
+  const currentBalance = Math.floor(parseFloat(balanceData?.balance || 0));
+  const estimatedCost = recipients.length || 0;
 
   return (
     <Box>
@@ -173,268 +214,227 @@ const UserSendSMS = () => {
         SMS Gönder
       </Typography>
 
-      {/* Bakiye Bilgisi */}
+      {/* Kredi Bilgisi */}
       <Alert 
-        severity={parseFloat(balanceData?.balance || 0) > 10 ? 'success' : 'warning'} 
+        severity={currentBalance > estimatedCost && currentBalance > 10 ? 'success' : 'warning'} 
         sx={{ mb: 3 }}
         icon={<InfoIcon />}
       >
-        <Typography variant="body1">
-          <strong>Mevcut Krediniz: {Math.floor(parseFloat(balanceData?.balance || 0))} SMS</strong>
-          {parseFloat(balanceData?.balance || 0) <= 10 && (
+        <Box>
+          <Typography variant="body1">
+            <strong>Mevcut Krediniz: {currentBalance} SMS</strong>
+          </Typography>
+          {estimatedCost > 0 && (
             <Typography variant="body2" sx={{ mt: 1 }}>
-              Krediniz düşük. Admin ile iletişime geçerek kredi ekleyebilirsiniz.
+              Tahmini Maliyet: {estimatedCost} kredi ({estimatedCost} numara)
             </Typography>
           )}
-        </Typography>
+          {currentBalance < estimatedCost && (
+            <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+              Yetersiz kredi! Eksik: {estimatedCost - currentBalance} kredi
+            </Typography>
+          )}
+        </Box>
       </Alert>
 
       <Card>
         <CardContent>
-          {/* Tabs */}
-          <Tabs value={tabValue} onChange={handleTabChange} centered>
-            <Tab
-              icon={<PersonIcon />}
-              label="Tekli SMS"
-              iconPosition="start"
-            />
-            <Tab
-              icon={<PeopleIcon />}
-              label="Toplu SMS"
-              iconPosition="start"
-            />
-          </Tabs>
-
-          {/* Tekli SMS Tab */}
-          <TabPanel value={tabValue} index={0}>
-            <Box component="form" onSubmit={singleForm.handleSubmit(onSingleSubmit)}>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <Controller
-                    name="recipient"
-                    control={singleForm.control}
-                    rules={{
-                      required: 'Telefon numarası gerekli',
-                      pattern: {
-                        value: /^90[0-9]{10}$/,
-                        message: 'Format: 90XXXXXXXXXX (örn: 905551234567)'
+          <Box component="form" onSubmit={smsForm.handleSubmit(onSubmit)}>
+            <Grid container spacing={3}>
+              {/* Mesaj Metni */}
+              <Grid item xs={12}>
+                <Controller
+                  name="text"
+                  control={smsForm.control}
+                  rules={{
+                    required: 'Mesaj metni gerekli',
+                    maxLength: { value: 149, message: 'Maksimum 149 karakter' }
+                  }}
+                  render={({ field, fieldState }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      multiline
+                      rows={4}
+                      label="Mesaj Metni"
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error?.message || 
+                        `${field.value?.length || 0}/149 karakter`
                       }
-                    }}
-                    render={({ field, fieldState }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        label="Telefon Numarası"
-                        error={!!fieldState.error}
-                        helperText={fieldState.error?.message || 'Format: 90XXXXXXXXXX'}
-                        placeholder="905551234567"
-                      />
-                    )}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Controller
-                    name="text"
-                    control={singleForm.control}
-                    rules={{
-                      required: 'Mesaj metni gerekli',
-                      maxLength: { value: 160, message: 'Maksimum 160 karakter' }
-                    }}
-                    render={({ field, fieldState }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        multiline
-                        rows={4}
-                        label="Mesaj Metni"
-                        error={!!fieldState.error}
-                        helperText={
-                          fieldState.error?.message || 
-                          `${field.value?.length || 0}/160 karakter`
-                        }
-                        placeholder="Mesajınızı buraya yazın..."
-                      />
-                    )}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Controller
-                    name="isScheduled"
-                    control={singleForm.control}
-                    render={({ field }) => (
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            {...field}
-                            checked={field.value}
-                          />
-                        }
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <ScheduleIcon sx={{ mr: 1 }} />
-                            Planlayarak Gönder
-                          </Box>
-                        }
-                      />
-                    )}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    startIcon={singleForm.watch('isScheduled') ? <ScheduleIcon /> : <SendIcon />}
-                    disabled={sendSingleMutation.isLoading || parseFloat(balanceData?.balance || 0) <= 0}
-                    size="large"
-                  >
-                    {sendSingleMutation.isLoading ? (
-                      <>
-                        <CircularProgress size={20} sx={{ mr: 1 }} />
-                        Gönderiliyor...
-                      </>
-                    ) : singleForm.watch('isScheduled') ? (
-                      'Zamanla ve Gönder'
-                    ) : (
-                      'Hemen Gönder'
-                    )}
-                  </Button>
-                </Grid>
+                      placeholder="Mesajınızı buraya yazın..."
+                      InputProps={{
+                        startAdornment: <TextFieldsIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                      }}
+                    />
+                  )}
+                />
               </Grid>
-            </Box>
-          </TabPanel>
 
-          {/* Toplu SMS Tab */}
-          <TabPanel value={tabValue} index={1}>
-            <Alert severity="info" sx={{ mb: 3 }}>
-              <Typography variant="body2">
-                <strong>Toplu SMS Kullanımı:</strong><br/>
-                • Her satıra bir telefon numarası yazın<br/>
-                • Format: 90XXXXXXXXXX (örn: 905551234567)<br/>
-                • Maksimum 1000 numara gönderebilirsiniz<br/>
-                • Geçersiz numaralar otomatik atlanır
-              </Typography>
-            </Alert>
-
-            <Box component="form" onSubmit={bulkForm.handleSubmit(onBulkSubmit)}>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Controller
-                    name="text"
-                    control={bulkForm.control}
-                    rules={{
-                      required: 'Mesaj metni gerekli',
-                      maxLength: { value: 160, message: 'Maksimum 160 karakter' }
-                    }}
-                    render={({ field, fieldState }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        multiline
-                        rows={6}
-                        label="Mesaj Metni"
-                        error={!!fieldState.error}
-                        helperText={
-                          fieldState.error?.message || 
-                          `${field.value?.length || 0}/160 karakter`
-                        }
-                        placeholder="Toplu mesajınızı buraya yazın..."
+              {/* Telefon Numaraları Bölümü */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  <PhoneIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Telefon Numaraları
+                </Typography>
+                
+                {/* Dosya Yükleme */}
+                <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <UploadIcon sx={{ mr: 1 }} />
+                    <Typography variant="body1" fontWeight="bold">
+                      TXT Dosyası Yükle
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      startIcon={<UploadIcon />}
+                      disabled={sendSMSMutation.isLoading}
+                    >
+                      Dosya Seç
+                      <input
+                        type="file"
+                        accept=".txt"
+                        hidden
+                        onChange={handleFileUpload}
                       />
+                    </Button>
+                    
+                    {uploadedFile && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          label={`${uploadedFile.name} (${recipients.length} numara)`}
+                          color="success"
+                          variant="outlined"
+                        />
+                        <IconButton size="small" onClick={clearFile}>
+                          <ClearIcon />
+                        </IconButton>
+                      </Box>
                     )}
-                  />
-                </Grid>
+                  </Box>
+                  
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    Her satırda bir telefon numarası olacak şekilde .txt dosyası yükleyin (Maksimum 100.000 numara)
+                  </Typography>
+                </Paper>
 
-                <Grid item xs={12} md={6}>
-                  <Controller
-                    name="recipients"
-                    control={bulkForm.control}
-                    rules={{
-                      required: 'En az bir telefon numarası gerekli'
-                    }}
-                    render={({ field, fieldState }) => (
-                      <TextField
-                        {...field}
-                        fullWidth
-                        multiline
-                        rows={6}
-                        label="Telefon Numaraları"
-                        error={!!fieldState.error}
-                        helperText={fieldState.error?.message || 'Her satıra bir numara yazın'}
-                        placeholder={`905551234567\n905557654321\n905559876543`}
-                      />
-                    )}
-                  />
-                </Grid>
+                {/* Manuel Giriş */}
+                <Controller
+                  name="recipients"
+                  control={smsForm.control}
+                  rules={{
+                    required: recipients.length === 0 ? 'En az bir telefon numarası gerekli' : false
+                  }}
+                  render={({ field, fieldState }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      multiline
+                      rows={6}
+                      label="Telefon Numaraları (Manuel Giriş)"
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error?.message || 
+                        `Her satıra bir numara yazın. Format: 90XXXXXXXXXX (${recipients.length} numara)`
+                      }
+                      placeholder="905551234567\n905557654321\n905559876543"
+                      disabled={uploadedFile !== null}
+                      onChange={(e) => {
+                        field.onChange(e);
+                        handleManualInput(e.target.value);
+                      }}
+                    />
+                  )}
+                />
 
-                <Grid item xs={12}>
-                  <Controller
-                    name="isScheduled"
-                    control={bulkForm.control}
-                    render={({ field }) => (
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            {...field}
-                            checked={field.value}
-                          />
-                        }
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <ScheduleIcon sx={{ mr: 1 }} />
-                            Planlayarak Gönder
-                          </Box>
-                        }
-                      />
+                {recipients.length > 0 && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    <strong>{recipients.length} numara hazır</strong>
+                    {recipients.length > 100000 && (
+                      <Typography variant="body2" color="error">
+                        Maksimum 100.000 numara gönderilebilir!
+                      </Typography>
                     )}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    startIcon={bulkForm.watch('isScheduled') ? <ScheduleIcon /> : <SendIcon />}
-                    disabled={sendBulkMutation.isLoading || parseFloat(balanceData?.balance || 0) <= 0}
-                    size="large"
-                  >
-                    {sendBulkMutation.isLoading ? (
-                      <>
-                        <CircularProgress size={20} sx={{ mr: 1 }} />
-                        Gönderiliyor...
-                      </>
-                    ) : bulkForm.watch('isScheduled') ? (
-                      'Zamanla ve Toplu Gönder'
-                    ) : (
-                      'Hemen Toplu Gönder'
-                    )}
-                  </Button>
-                </Grid>
+                  </Alert>
+                )}
               </Grid>
-            </Box>
-          </TabPanel>
+
+              {/* Zamanlama */}
+              <Grid item xs={12}>
+                <Controller
+                  name="isScheduled"
+                  control={smsForm.control}
+                  render={({ field }) => (
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          {...field}
+                          checked={field.value}
+                        />
+                      }
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <ScheduleIcon sx={{ mr: 1 }} />
+                          Planlayarak Gönder
+                        </Box>
+                      }
+                    />
+                  )}
+                />
+              </Grid>
+
+              {/* Gönder Butonu */}
+              <Grid item xs={12}>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  startIcon={smsForm.watch('isScheduled') ? <ScheduleIcon /> : <SendIcon />}
+                  disabled={
+                    sendSMSMutation.isLoading || 
+                    currentBalance < estimatedCost ||
+                    recipients.length === 0 ||
+                    recipients.length > 100000
+                  }
+                  size="large"
+                  sx={{ minWidth: 200 }}
+                >
+                  {sendSMSMutation.isLoading ? (
+                    <>
+                      <CircularProgress size={20} sx={{ mr: 1 }} />
+                      Gönderiliyor...
+                    </>
+                  ) : smsForm.watch('isScheduled') ? (
+                    `Zamanla ve Gönder (${estimatedCost} Kredi)`
+                  ) : (
+                    `Hemen Gönder (${estimatedCost} Kredi)`
+                  )}
+                </Button>
+              </Grid>
+            </Grid>
+          </Box>
         </CardContent>
       </Card>
 
-      {/* Zamanlama Dialog */}
+      {/* Zamanlama Dialog'u */}
       <Dialog open={scheduleOpen} onClose={() => setScheduleOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <ScheduleIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          SMS Gönderim Zamanı Belirle
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ScheduleIcon sx={{ mr: 1 }} />
+            SMS Zamanlama
+          </Box>
         </DialogTitle>
         <DialogContent>
-          <Alert severity="info" sx={{ mb: 3 }}>
-            SMS'leriniz belirttiğiniz tarih ve saatte otomatik olarak gönderilecektir.
-          </Alert>
-          
-          <Box component="form" onSubmit={scheduleForm.handleSubmit(onScheduleSubmit)} sx={{ mt: 2 }}>
-            <Grid container spacing={2}>
+          <Box component="form" onSubmit={scheduleForm.handleSubmit(onScheduleSubmit)}>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12} sm={6}>
                 <Controller
                   name="scheduledDate"
                   control={scheduleForm.control}
-                  rules={{ required: 'Tarih seçimi gerekli' }}
+                  rules={{ required: 'Tarih seçiniz' }}
                   render={({ field, fieldState }) => (
                     <TextField
                       {...field}
@@ -455,7 +455,7 @@ const UserSendSMS = () => {
                 <Controller
                   name="scheduledTime"
                   control={scheduleForm.control}
-                  rules={{ required: 'Saat seçimi gerekli' }}
+                  rules={{ required: 'Saat seçiniz' }}
                   render={({ field, fieldState }) => (
                     <TextField
                       {...field}
@@ -476,44 +476,23 @@ const UserSendSMS = () => {
           <Button onClick={() => setScheduleOpen(false)}>
             İptal
           </Button>
-          <Button
+          <Button 
             onClick={scheduleForm.handleSubmit(onScheduleSubmit)}
             variant="contained"
             startIcon={<ScheduleIcon />}
+            disabled={sendSMSMutation.isLoading}
           >
-            Zamanla ve Gönder
+            {sendSMSMutation.isLoading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                Planlanıyor...
+              </>
+            ) : (
+              'Zamanla ve Gönder'
+            )}
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Yardım Bilgileri */}
-      <Card sx={{ mt: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            📋 SMS Gönderim Kuralları
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 2, bgcolor: 'info.light' }}>
-                <Typography variant="body2">
-                  <strong>Telefon Numarası:</strong> 90XXXXXXXXXX formatında<br/>
-                  <strong>Mesaj Uzunluğu:</strong> Maksimum 160 karakter<br/>
-                  <strong>Maliyet:</strong> Her başarılı SMS için 1 kredi
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 2, bgcolor: 'warning.light' }}>
-                <Typography variant="body2">
-                  <strong>Planlama:</strong> En az 5 dakika sonra için ayarlayabilirsiniz<br/>
-                  <strong>Toplu SMS:</strong> Maksimum 1000 numara<br/>
-                  <strong>Geçersiz Numaralar:</strong> Otomatik olarak atlanır
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
     </Box>
   );
 };

@@ -1,4 +1,4 @@
-// src/App.jsx - FİNAL DÜZELTİLMİŞ VERSİYON
+// src/App.jsx - KREDİ SİSTEMİNE GÜNCELLENMİŞ VERSİYON
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';

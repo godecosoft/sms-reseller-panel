@@ -1,4 +1,4 @@
-// src/routes/user.js
+// src/routes/user.js - TEK API ENDPOINT + YENİ KREDİ SİSTEMİ
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { User, SMSCampaign, SMSMessage, BalanceTransaction } = require('../models');
@@ -42,7 +42,8 @@ router.get('/profile', async (req, res) => {
       }]
     });
 
-    const totalSpent = await BalanceTransaction.sum('amount', {
+    // Toplam kullanılan kredi
+    const totalCreditsUsed = await BalanceTransaction.sum('amount', {
       where: {
         userId: user.id,
         transactionType: 'debit'
@@ -55,7 +56,7 @@ router.get('/profile', async (req, res) => {
         totalSMS,
         deliveredSMS,
         successRate: totalSMS > 0 ? ((deliveredSMS / totalSMS) * 100).toFixed(2) : 0,
-        totalSpent: parseFloat(totalSpent).toFixed(2)
+        totalCreditsUsed: Math.floor(parseFloat(totalCreditsUsed))
       }
     });
 
@@ -127,7 +128,7 @@ router.put('/profile', [
   }
 });
 
-// Bakiye bilgisi
+// Kredi bilgisi
 router.get('/balance', async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -142,7 +143,7 @@ router.get('/balance', async (req, res) => {
       });
     }
 
-    // Son 10 bakiye hareketi
+    // Son 10 kredi hareketi
     const recentTransactions = await BalanceTransaction.findAll({
       where: { userId },
       limit: 10,
@@ -150,65 +151,46 @@ router.get('/balance', async (req, res) => {
     });
 
     res.json({
-      balance: parseFloat(user.balance).toFixed(2),
+      balance: Math.floor(parseFloat(user.balance)),
       recentTransactions: recentTransactions.map(t => ({
         id: t.id,
         type: t.transactionType,
-        amount: parseFloat(t.amount).toFixed(2),
+        amount: Math.floor(parseFloat(t.amount)),
         description: t.description,
         createdAt: t.createdAt
       }))
     });
 
   } catch (error) {
-    console.error('Bakiye bilgisi hatası:', error);
+    console.error('Kredi bilgisi hatası:', error);
     res.status(500).json({
-      error: 'Bakiye bilgileri alınırken hata oluştu'
+      error: 'Kredi bilgileri alınırken hata oluştu'
     });
   }
 });
 
-// Tekli SMS gönder
+// TEK SMS GÖNDERİM ENDPOİNT - BULK API KULLANIR
 router.post('/send-sms', [
-  body('title').isLength({ max: 11 }).withMessage('Gönderici adı maksimum 11 karakter olmalı'),
-  body('text').isLength({ min: 1, max: 160 }).withMessage('Mesaj 1-160 karakter arası olmalı'),
-  body('recipient').isMobilePhone('tr-TR').withMessage('Geçerli bir Türkiye telefon numarası girin')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Geçersiz veriler',
-        details: errors.array()
-      });
-    }
-
-    const { title, text, recipient } = req.body;
-    const userId = req.user.userId;
-
-    // SMS gönder
-    const result = await smsService.sendSingleSMS(userId, {
-      title,
-      text,
-      recipient,
-      reportEnabled: true
-    });
-
-    res.json(result);
-
-  } catch (error) {
-    console.error('SMS gönderim hatası:', error);
-    res.status(400).json({
-      error: error.message || 'SMS gönderilirken hata oluştu'
-    });
-  }
-});
-
-// Toplu SMS gönder
-router.post('/send-bulk-sms', [
-  body('title').isLength({ max: 11 }).withMessage('Gönderici adı maksimum 11 karakter olmalı'),
-  body('text').isLength({ min: 1, max: 160 }).withMessage('Mesaj 1-160 karakter arası olmalı'),
-  body('recipients').isArray({ min: 1, max: 1000 }).withMessage('1-1000 arasında alıcı olmalı')
+  body('text')
+    .isLength({ min: 1, max: 149 })
+    .withMessage('Mesaj 1-149 karakter arası olmalı'),
+  body('recipients')
+    .custom((value) => {
+      // String olarak tek numara veya array olarak çoklu numara kabul et
+      if (typeof value === 'string') {
+        return true;
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) {
+          throw new Error('En az bir telefon numarası gerekli');
+        }
+        if (value.length > 100000) {
+          throw new Error('Maksimum 100.000 numara gönderilebilir');
+        }
+        return true;
+      }
+      throw new Error('Recipients string veya array olmalı');
+    })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -222,23 +204,33 @@ router.post('/send-bulk-sms', [
     const { title, text, recipients } = req.body;
     const userId = req.user.userId;
 
-    // Toplu SMS gönder
-    const result = await smsService.sendBulkSMS(userId, {
+    // Recipients'ı array'e dönüştür
+    let recipientList = [];
+    if (typeof recipients === 'string') {
+      recipientList = [recipients];
+    } else if (Array.isArray(recipients)) {
+      recipientList = recipients;
+    }
+
+    // SMS gönder - YENİ BULK API
+    const result = await smsService.sendSMS(userId, {
       title,
       text,
-      recipients,
+      recipients: recipientList,
       reportEnabled: true
     });
 
     res.json(result);
 
   } catch (error) {
-    console.error('Toplu SMS gönderim hatası:', error);
+    console.error('SMS gönderim hatası:', error);
     res.status(400).json({
-      error: error.message || 'Toplu SMS gönderilirken hata oluştu'
+      error: error.message || 'SMS gönderilirken hata oluştu'
     });
   }
 });
+
+// BULK SMS ENDPOINT KALDIRILDI - ARTIK TEK ENDPOINT VAR
 
 // SMS geçmişi
 router.get('/sms-history', async (req, res) => {
@@ -281,13 +273,23 @@ router.get('/sms-history', async (req, res) => {
         id: campaign.id,
         title: campaign.title,
         messageText: campaign.messageText,
-        totalRecipients: campaign.totalRecipients,
-        successfulSends: campaign.successfulSends,
-        failedSends: campaign.failedSends,
-        cost: parseFloat(campaign.cost).toFixed(2),
+        totalRecipients: campaign.totalRecipients, // Girilen numara sayısı
+        successfulSends: campaign.successfulSends, // Geçerli numara sayısı
+        failedSends: campaign.failedSends, // Geçersiz numara sayısı
+        creditsUsed: campaign.cost, // Toplam kullanılan kredi (girilen numara sayısı)
         status: campaign.status,
         createdAt: campaign.createdAt,
-        messagesCount: campaign.messages.length
+        messagesCount: campaign.messages.length,
+        // Raporlama verileri
+        reportId: campaign.reportId,
+        lastReportCheck: campaign.lastReportCheck,
+        deliveredCount: campaign.deliveredCount || 0,
+        failedCount: campaign.failedCount || 0,
+        invalidCount: campaign.invalidCount || 0,
+        blockedCount: campaign.blockedCount || 0,
+        turkcellCount: campaign.turkcellCount || 0,
+        vodafoneCount: campaign.vodafoneCount || 0,
+        turktelekomCount: campaign.turktelekomCount || 0
       })),
       pagination: {
         page,
@@ -331,17 +333,28 @@ router.get('/campaigns/:id', async (req, res) => {
         id: campaign.id,
         title: campaign.title,
         messageText: campaign.messageText,
-        totalRecipients: campaign.totalRecipients,
-        successfulSends: campaign.successfulSends,
-        failedSends: campaign.failedSends,
-        cost: parseFloat(campaign.cost).toFixed(2),
+        totalRecipients: campaign.totalRecipients, // Girilen toplam numara
+        successfulSends: campaign.successfulSends, // Geçerli ve gönderilen
+        failedSends: campaign.failedSends, // Geçersiz format
+        creditsUsed: campaign.cost, // Girilen numara sayısı kadar kredi
         status: campaign.status,
         createdAt: campaign.createdAt,
+        // Raporlama verileri
+        reportId: campaign.reportId,
+        lastReportCheck: campaign.lastReportCheck,
+        reportData: campaign.reportData,
+        deliveredCount: campaign.deliveredCount || 0,
+        failedCount: campaign.failedCount || 0,
+        invalidCount: campaign.invalidCount || 0,
+        blockedCount: campaign.blockedCount || 0,
+        turkcellCount: campaign.turkcellCount || 0,
+        vodafoneCount: campaign.vodafoneCount || 0,
+        turktelekomCount: campaign.turktelekomCount || 0,
         messages: campaign.messages.map(msg => ({
           id: msg.id,
           phoneNumber: msg.phoneNumber,
           status: msg.status,
-          cost: parseFloat(msg.cost).toFixed(4),
+          creditsUsed: 1, // Her numara için 1 kredi
           sentAt: msg.sentAt,
           deliveredAt: msg.deliveredAt,
           errorMessage: msg.errorMessage
@@ -357,55 +370,7 @@ router.get('/campaigns/:id', async (req, res) => {
   }
 });
 
-// SMS maliyeti hesaplama
-router.post('/calculate-cost', [
-  body('text').isLength({ min: 1, max: 160 }).withMessage('Mesaj 1-160 karakter arası olmalı'),
-  body('recipients').isArray({ min: 1 }).withMessage('En az 1 alıcı gerekli')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Geçersiz veriler',
-        details: errors.array()
-      });
-    }
-
-    const { text, recipients } = req.body;
-
-    // Geçerli telefon numaralarını say
-    const validRecipients = recipients.filter(number => {
-      const cleanNumber = number.replace(/\s+/g, '');
-      return /^90[0-9]{10}$/.test(cleanNumber);
-    });
-
-    if (validRecipients.length === 0) {
-      return res.status(400).json({
-        error: 'Geçerli telefon numarası bulunamadı'
-      });
-    }
-
-    const costInfo = smsService.calculateSMSCost(text, validRecipients.length);
-
-    res.json({
-      messageLength: text.length,
-      messageCount: costInfo.messageCount,
-      totalRecipients: recipients.length,
-      validRecipients: validRecipients.length,
-      invalidRecipients: recipients.length - validRecipients.length,
-      perSMSCost: parseFloat(costInfo.perSMS).toFixed(4),
-      totalCost: parseFloat(costInfo.totalCost).toFixed(2)
-    });
-
-  } catch (error) {
-    console.error('Maliyet hesaplama hatası:', error);
-    res.status(500).json({
-      error: 'Maliyet hesaplanırken hata oluştu'
-    });
-  }
-});
-
-// Bakiye hareketleri
+// Kredi hareketleri
 router.get('/balance-transactions', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -441,7 +406,7 @@ router.get('/balance-transactions', async (req, res) => {
       transactions: transactions.map(t => ({
         id: t.id,
         type: t.transactionType,
-        amount: parseFloat(t.amount).toFixed(2),
+        amount: Math.floor(parseFloat(t.amount)),
         description: t.description,
         createdAt: t.createdAt
       })),
@@ -454,9 +419,9 @@ router.get('/balance-transactions', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Bakiye hareketleri hatası:', error);
+    console.error('Kredi hareketleri hatası:', error);
     res.status(500).json({
-      error: 'Bakiye hareketleri alınırken hata oluştu'
+      error: 'Kredi hareketleri alınırken hata oluştu'
     });
   }
 });
@@ -530,15 +495,15 @@ router.get('/dashboard', async (req, res) => {
       }]
     });
 
-    // Harcama istatistikleri
-    const totalSpent = await BalanceTransaction.sum('amount', {
+    // Kredi kullanım istatistikleri
+    const totalCreditsUsed = await BalanceTransaction.sum('amount', {
       where: {
         userId,
         transactionType: 'debit'
       }
     }) || 0;
 
-    const monthSpent = await BalanceTransaction.sum('amount', {
+    const monthCreditsUsed = await BalanceTransaction.sum('amount', {
       where: {
         userId,
         transactionType: 'debit',
@@ -556,7 +521,7 @@ router.get('/dashboard', async (req, res) => {
     res.json({
       user: {
         name: `${user.firstName} ${user.lastName}`,
-        balance: parseFloat(user.balance).toFixed(2)
+        balance: Math.floor(parseFloat(user.balance))
       },
       sms: {
         total: totalSMS,
@@ -567,16 +532,16 @@ router.get('/dashboard', async (req, res) => {
         failed: failedSMS,
         successRate: totalSMS > 0 ? ((deliveredSMS / totalSMS) * 100).toFixed(2) : 0
       },
-      spending: {
-        total: parseFloat(totalSpent).toFixed(2),
-        month: parseFloat(monthSpent).toFixed(2)
+      credits: {
+        total: Math.floor(parseFloat(totalCreditsUsed)),
+        month: Math.floor(parseFloat(monthCreditsUsed))
       },
       recentCampaigns: recentCampaigns.map(campaign => ({
         id: campaign.id,
         title: campaign.title,
         totalRecipients: campaign.totalRecipients,
         status: campaign.status,
-        cost: parseFloat(campaign.cost).toFixed(2),
+        creditsUsed: campaign.cost, // Girilen numara sayısı kadar kredi
         createdAt: campaign.createdAt
       }))
     });
@@ -585,6 +550,79 @@ router.get('/dashboard', async (req, res) => {
     console.error('Kullanıcı dashboard hatası:', error);
     res.status(500).json({
       error: 'Dashboard verileri alınırken hata oluştu'
+    });
+  }
+});
+
+// Kampanya raporunu manuel güncelle
+router.post('/campaigns/:id/update-report', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const campaign = await SMSCampaign.findOne({
+      where: { id, userId }
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        error: 'Kampanya bulunamadı'
+      });
+    }
+
+    if (!campaign.reportId) {
+      return res.status(400).json({
+        error: 'Bu kampanya için rapor ID bulunamadı'
+      });
+    }
+
+    // Raporu güncelle
+    await smsService.updateCampaignReport(id);
+
+    // Güncellenmiş kampanyayı getir
+    await campaign.reload();
+
+    res.json({
+      message: 'Kampanya raporu başarıyla güncellendi',
+      reportData: {
+        reportId: campaign.reportId,
+        lastReportCheck: campaign.lastReportCheck,
+        deliveredCount: campaign.deliveredCount,
+        failedCount: campaign.failedCount,
+        status: campaign.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Kampanya rapor güncelleme hatası:', error);
+    res.status(500).json({
+      error: 'Kampanya raporu güncellenirken hata oluştu'
+    });
+  }
+});
+
+// TurkeySMS delivery raporu getir
+router.get('/delivery-report/:reportId', async (req, res) => {
+  try {
+    const { reportId } = req.params;
+
+    const report = await smsService.getDeliveryReport(reportId);
+
+    if (!report) {
+      return res.status(404).json({
+        error: 'Rapor bulunamadı'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: report
+    });
+
+  } catch (error) {
+    console.error('Delivery raporu hatası:', error);
+    res.status(500).json({
+      error: 'Delivery raporu alınırken hata oluştu'
     });
   }
 });

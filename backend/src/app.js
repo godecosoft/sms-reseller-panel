@@ -1,4 +1,4 @@
-// src/app.js - DÜZELTİLMİŞ VERSİYON
+// src/app.js - DÜZELTİLMİŞ VERSİYON (CORS VE ERROR HANDLING İYİLEŞTİRİLDİ)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -20,23 +20,25 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
+// CORS - DÜZELTİLMİŞ KONFİGÜRASYON
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://yourdomain.com'] 
     : [
         'http://localhost:3000',
-        'http://localhost:5173',  // ← YENİ EKLENEN
+        'http://localhost:5173',  // Vite default port
+        'http://localhost:4173',  // Vite preview port
         'http://127.0.0.1:3000',
-        'http://127.0.0.1:5173'   // ← YENİ EKLENEN
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:4173'
       ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
 
-
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting - İYİLEŞTİRİLMİŞ
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 dakika
   max: 100, // maksimum 100 istek
   message: {
@@ -45,7 +47,20 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
-app.use('/api/', limiter);
+
+// Auth için özel rate limiter
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 dakika
+  max: 10, // maksimum 10 auth işlemi
+  message: {
+    error: 'Çok fazla giriş denemesi, lütfen 15 dakika sonra tekrar deneyin.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.use('/api/', generalLimiter);
+app.use('/api/auth', authLimiter);
 
 // Body parser middleware
 app.use(express.json({ 
@@ -61,6 +76,9 @@ app.use(express.urlencoded({
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
     console.log(`${req.method} ${req.originalUrl} - ${new Date().toISOString()}`);
+    if (req.body && Object.keys(req.body).length > 0) {
+      console.log('Request Body:', JSON.stringify(req.body, null, 2));
+    }
     next();
   });
 }
@@ -71,15 +89,30 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/sms', smsRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'SMS Reseller Panel API çalışıyor',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
-  });
+// Health check endpoint - GENİŞLETİLMİŞ
+app.get('/api/health', async (req, res) => {
+  try {
+    // Veritabanı bağlantısını test et
+    await sequelize.authenticate();
+    
+    res.json({ 
+      status: 'OK', 
+      message: 'SMS Reseller Panel API çalışıyor',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      database: 'Connected',
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    console.error('Health check database error:', error);
+    res.status(503).json({
+      status: 'ERROR',
+      message: 'Veritabanı bağlantı sorunu',
+      timestamp: new Date().toISOString(),
+      database: 'Disconnected'
+    });
+  }
 });
 
 // Root endpoint
@@ -93,6 +126,11 @@ app.get('/', (req, res) => {
       admin: '/api/admin',
       user: '/api/user',
       sms: '/api/sms'
+    },
+    documentation: {
+      login: 'POST /api/auth/login',
+      register: 'POST /api/auth/register',
+      verify: 'GET /api/auth/verify'
     }
   });
 });
@@ -103,55 +141,87 @@ app.use('*', (req, res) => {
     error: 'Endpoint bulunamadı',
     path: req.originalUrl,
     method: req.method,
-    message: 'Bu endpoint mevcut değil. /api/health adresini kontrol edin.'
+    message: 'Bu endpoint mevcut değil. /api/health adresini kontrol edin.',
+    availableEndpoints: ['/api/health', '/api/auth', '/api/admin', '/api/user', '/api/sms']
   });
 });
 
-// Global error handler - En son
+// Global error handler - İYİLEŞTİRİLMİŞ
 app.use((error, req, res, next) => {
+  // Error logging
   console.error('❌ Sunucu Hatası:', {
     error: error.message,
-    stack: error.stack,
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     url: req.originalUrl,
     method: req.method,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
   });
 
   // Sequelize hataları için özel handling
   if (error.name === 'SequelizeConnectionError') {
     return res.status(503).json({
       error: 'Veritabanı bağlantı hatası',
-      message: 'Lütfen daha sonra tekrar deneyin.'
+      message: 'Lütfen daha sonra tekrar deneyin.',
+      code: 'DB_CONNECTION_ERROR'
     });
   }
 
   if (error.name === 'SequelizeValidationError') {
     return res.status(400).json({
       error: 'Veri doğrulama hatası',
-      details: error.errors?.map(e => e.message) || []
+      details: error.errors?.map(e => e.message) || [],
+      code: 'VALIDATION_ERROR'
+    });
+  }
+
+  if (error.name === 'SequelizeUniqueConstraintError') {
+    return res.status(400).json({
+      error: 'Bu veri zaten mevcut',
+      details: error.errors?.map(e => `${e.path}: ${e.value}`) || [],
+      code: 'UNIQUE_CONSTRAINT_ERROR'
     });
   }
 
   if (error.name === 'JsonWebTokenError') {
     return res.status(401).json({
-      error: 'Geçersiz token'
+      error: 'Geçersiz token',
+      code: 'INVALID_TOKEN'
     });
   }
 
   if (error.name === 'TokenExpiredError') {
     return res.status(401).json({
-      error: 'Token süresi dolmuş'
+      error: 'Token süresi dolmuş',
+      code: 'TOKEN_EXPIRED'
+    });
+  }
+
+  // Axios/HTTP hataları
+  if (error.code === 'ECONNREFUSED') {
+    return res.status(503).json({
+      error: 'Harici servis bağlantı hatası',
+      message: 'SMS API\'ye ulaşılamıyor',
+      code: 'EXTERNAL_SERVICE_ERROR'
     });
   }
 
   // Default error response
-  res.status(error.status || 500).json({
+  const statusCode = error.status || error.statusCode || 500;
+  const errorResponse = {
     error: error.message || 'Sunucu hatası',
-    ...(process.env.NODE_ENV === 'development' && { 
-      stack: error.stack,
-      details: error 
-    })
-  });
+    code: error.code || 'INTERNAL_SERVER_ERROR',
+    timestamp: new Date().toISOString()
+  };
+
+  // Development ortamında daha fazla bilgi
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.stack = error.stack;
+    errorResponse.details = error;
+  }
+
+  res.status(statusCode).json(errorResponse);
 });
 
 // Veritabanı bağlantısı ve sunucu başlatma
@@ -167,18 +237,22 @@ async function startServer() {
       throw new Error(`Eksik çevre değişkenleri: ${missingEnvVars.join(', ')}`);
     }
 
+    // JWT Secret güvenlik kontrolü
+    if (process.env.JWT_SECRET.length < 32) {
+      console.warn('⚠️  JWT_SECRET çok kısa, güvenlik riski oluşturabilir');
+    }
+
     // Veritabanı bağlantısını test et
     await sequelize.authenticate();
     console.log('✅ Veritabanı bağlantısı başarılı');
 
-    // Tabloları oluştur/güncelle (development için)
+    // Tabloları oluştur/güncelle
     if (process.env.NODE_ENV === 'development') {
       await sequelize.sync({ alter: true });
-      console.log('✅ Veritabanı tabloları güncellendi');
+      console.log('✅ Veritabanı tabloları güncellendi (development)');
     } else {
-      // Production'da sadece kontrol et
       await sequelize.sync({ force: false });
-      console.log('✅ Veritabanı tabloları kontrol edildi');
+      console.log('✅ Veritabanı tabloları kontrol edildi (production)');
     }
 
     // Sunucuyu başlat
@@ -187,7 +261,17 @@ async function startServer() {
       console.log(`📱 SMS Reseller Panel Backend hazır!`);
       console.log(`🌍 Ortam: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📊 Health Check: http://localhost:${PORT}/api/health`);
+      console.log(`📚 API Docs: http://localhost:${PORT}/`);
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔧 Development modunda çalışıyor - debug logları aktif');
+      }
     });
+
+    // Server timeout ayarları
+    server.timeout = 30000; // 30 saniye
+    server.keepAliveTimeout = 65000; // 65 saniye
+    server.headersTimeout = 66000; // 66 saniye
 
     // Graceful shutdown setup
     const gracefulShutdown = async (signal) => {
@@ -199,6 +283,7 @@ async function startServer() {
         try {
           await sequelize.close();
           console.log('🗄️ Veritabanı bağlantısı kapatıldı');
+          console.log('✅ Graceful shutdown tamamlandı');
           process.exit(0);
         } catch (error) {
           console.error('❌ Veritabanı kapatma hatası:', error);
@@ -221,6 +306,10 @@ async function startServer() {
     process.on('unhandledRejection', (reason, promise) => {
       console.error('❌ Unhandled Promise Rejection:', reason);
       console.error('Promise:', promise);
+      // Production'da sunucuyu kapat
+      if (process.env.NODE_ENV === 'production') {
+        process.exit(1);
+      }
     });
 
     // Uncaught exception handler

@@ -1,4 +1,4 @@
-// src/routes/auth.js
+// src/routes/auth.js - DÜZELTİLMİŞ VERSİYON (DUPLICATE ENDPOİNT KALDIRILDI)
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -174,55 +174,7 @@ router.post('/login', [
   }
 });
 
-// Token doğrulama
-router.get('/verify', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        error: 'Token bulunamadı'
-      });
-    }
-
-    // Token'ı doğrula
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Kullanıcıyı bul
-    const user = await User.findByPk(decoded.userId);
-    
-    if (!user) {
-      return res.status(401).json({
-        error: 'Geçersiz token'
-      });
-    }
-
-    res.json({
-      valid: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        balance: user.balance,
-        apiKey: user.apiKey,
-        status: user.status
-      }
-    });
-
-  } catch (error) {
-    console.error('Token doğrulama hatası:', error);
-    res.status(401).json({
-      error: 'Geçersiz token'
-    });
-  }
-});
-
-// backend/src/routes/auth.js dosyasına EKLE (dosyanın sonuna)
-
-// Token doğrulama endpoint'i - EKSİK OLAN BU!
+// Token doğrulama - TEK VERSİYON (DUPLICATE KALDIRILDI)
 router.get('/verify', async (req, res) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');

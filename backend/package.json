@@ -1,16 +1,36 @@
 {
   "name": "sms-reseller-backend",
   "version": "1.0.0",
-  "description": "SMS Reseller Panel Backend",
+  "description": "SMS Reseller Panel Backend - TurkeySMS API Integration",
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "init-db": "node src/database/init.js"
+    "init-db": "node src/database/init.js init",
+    "reset-db": "node src/database/init.js reset",
+    "setup-db": "node src/database/init.js setup",
+    "sample-data": "node src/database/init.js sample",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"Linting not configured\"",
+    "build": "echo \"No build step required for Node.js\"",
+    "health": "curl -f http://localhost:5000/api/health || exit 1"
   },
-  "keywords": ["sms", "reseller", "panel"],
-  "author": "SMS Panel",
+  "keywords": [
+    "sms", 
+    "reseller", 
+    "panel", 
+    "turkeysms", 
+    "api", 
+    "nodejs", 
+    "express", 
+    "mysql"
+  ],
+  "author": "SMS Panel Team",
   "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "bcryptjs": "^2.4.3",
@@ -28,5 +48,13 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/sms-reseller-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/sms-reseller-backend/issues"
+  },
+  "homepage": "https://github.com/your-username/sms-reseller-backend#readme"
 }

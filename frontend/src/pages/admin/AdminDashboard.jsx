@@ -1,4 +1,4 @@
-// src/pages/admin/AdminDashboard.jsx - TAM HALİ
+// src/pages/admin/AdminDashboard.jsx - KREDİ SİSTEMİNE GÜNCELLENMİŞ
 import React from 'react';
 import {
   Grid,
@@ -57,18 +57,18 @@ const AdminDashboard = () => {
       subtitle: `%${stats?.sms?.successRate || 0} başarı`
     },
     {
-      title: 'Toplam Gelir',
-      value: `₺${stats?.revenue?.total || 0}`,
+      title: 'Toplam Kredi Kullanımı',
+      value: `${stats?.sms?.total || 0} Kredi`,
       icon: <TrendingUp />,
       color: 'success.main',
-      subtitle: `Bu ay ₺${stats?.revenue?.month || 0}`
+      subtitle: `Bu ay ${stats?.sms?.month || 0} kredi`
     },
     {
-      title: 'Toplam Bakiye',
-      value: `₺${stats?.balance?.total || 0}`,
+      title: 'Toplam Kullanıcı Kredisi',
+      value: `${Math.floor(parseFloat(stats?.balance?.total || 0))} Kredi`,
       icon: <AccountBalance />,
       color: 'warning.main',
-      subtitle: 'Kullanıcı bakiyeleri'
+      subtitle: 'Kullanıcı kredu bakiyeleri'
     }
   ];
 
@@ -117,8 +117,8 @@ const AdminDashboard = () => {
                 <Typography variant="body2">{stats?.sms?.today || 0}</Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="body2">Gelir</Typography>
-                <Typography variant="body2">₺{stats?.revenue?.today || 0}</Typography>
+                <Typography variant="body2">Kredi Kullanımı</Typography>
+                <Typography variant="body2">{stats?.sms?.today || 0} Kredi</Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="body2">Başarı Oranı</Typography>
@@ -149,7 +149,7 @@ const AdminDashboard = () => {
                       secondary={`${campaign.user} - ${campaign.totalRecipients} alıcı`}
                     />
                     <Chip
-                      label={`₺${campaign.cost}`}
+                      label={`${campaign.totalRecipients} Kredi`}
                       size="small"
                       color="primary"
                       variant="outlined"

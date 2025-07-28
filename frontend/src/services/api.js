@@ -1,3 +1,4 @@
+// src/services/api.js - RAPORLAMA ENDPOİNT'LERİ EKLENDİ
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -44,10 +45,7 @@ export const authAPI = {
   verify: () => api.get('/auth/verify'),
 };
 
-// Admin servisleri
-// src/services/api.js - Test SMS endpoint'i eklendi (sadece eklenen kısım)
-
-// Admin servisleri - SMS ayarları eklendi
+// Admin servisleri - Raporlama endpoint'leri eklendi
 export const adminAPI = {
   getDashboardStats: () => api.get('/admin/dashboard-stats'),
   getUsers: (params) => api.get('/admin/users', { params }),
@@ -57,12 +55,17 @@ export const adminAPI = {
   addBalance: (id, data) => api.post(`/admin/users/${id}/add-balance`, data),
   getSMSReports: (params) => api.get('/admin/sms-reports', { params }),
   
-  // YENİ SMS AYARLARI ENDPOİNTLERİ
+  // SMS ayarları endpoint'leri
   updateUserSMSSettings: (id, data) => api.put(`/admin/users/${id}/sms-settings`, data),
   sendTestSMS: (data) => api.post('/admin/test-sms', data),
+  
+  // YENİ RAPORLAMA ENDPOİNT'LERİ
+  getCampaignDetail: (id) => api.get(`/admin/campaigns/${id}`),
+  updateCampaignReport: (id) => api.post(`/admin/campaigns/${id}/update-report`),
+  getDeliveryReport: (reportId) => api.get(`/admin/delivery-report/${reportId}`),
 };
 
-// User servisleri
+// User servisleri - Raporlama endpoint'leri eklendi
 export const userAPI = {
   getProfile: () => api.get('/user/profile'),
   updateProfile: (data) => api.put('/user/profile', data),
@@ -72,12 +75,11 @@ export const userAPI = {
   sendBulkSMS: (data) => api.post('/user/send-bulk-sms', data),
   getSMSHistory: (params) => api.get('/user/sms-history', { params }),
   getCampaign: (id) => api.get(`/user/campaigns/${id}`),
-  calculateCost: (data) => api.post('/user/calculate-cost', data),
   getBalanceTransactions: (params) => api.get('/user/balance-transactions', { params }),
+  
+  // YENİ RAPORLAMA ENDPOİNT'LERİ
+  updateCampaignReport: (id) => api.post(`/user/campaigns/${id}/update-report`),
+  getDeliveryReport: (reportId) => api.get(`/user/delivery-report/${reportId}`),
 };
 
-
-
 export default api;
-
-// ===================================

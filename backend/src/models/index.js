@@ -1,4 +1,4 @@
-// src/models/index.js - User modeline SMS ayarları eklendi
+// src/models/index.js - RAPORLAMA ALANLARI EKLENDİ
 const { Sequelize, DataTypes } = require('sequelize');
 require('dotenv').config();
 
@@ -20,7 +20,7 @@ const sequelize = new Sequelize(
   }
 );
 
-// Kullanıcılar Modeli - SMS AYARLARI EKLENDİ
+// Kullanıcılar Modeli
 const User = sequelize.define('User', {
   id: {
     type: DataTypes.UUID,
@@ -68,7 +68,7 @@ const User = sequelize.define('User', {
     type: DataTypes.ENUM('active', 'inactive', 'suspended'),
     defaultValue: 'active'
   },
-  // YENİ SMS AYARLARI
+  // SMS ayarları
   smsTitle: {
     type: DataTypes.STRING(20),
     defaultValue: '08509449683',
@@ -84,7 +84,7 @@ const User = sequelize.define('User', {
   timestamps: true
 });
 
-// SMS Kampanyaları Modeli
+// SMS Kampanyaları Modeli - RAPORLAMA ALANLARI EKLENDİ
 const SMSCampaign = sequelize.define('SMSCampaign', {
   id: {
     type: DataTypes.UUID,
@@ -126,6 +126,55 @@ const SMSCampaign = sequelize.define('SMSCampaign', {
   status: {
     type: DataTypes.ENUM('pending', 'sending', 'completed', 'failed'),
     defaultValue: 'pending'
+  },
+  // YENİ RAPORLAMA ALANLARI
+  reportId: {
+    type: DataTypes.STRING(50),
+    comment: 'TurkeySMS rapor_id - Kampanya takip ID\'si'
+  },
+  lastReportCheck: {
+    type: DataTypes.DATE,
+    comment: 'Son rapor kontrol tarihi'
+  },
+  reportData: {
+    type: DataTypes.TEXT,
+    comment: 'TurkeySMS rapor API yanıtı (JSON)'
+  },
+  deliveredCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Teslim edilen SMS sayısı'
+  },
+  failedCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Teslim edilemeyen SMS sayısı'
+  },
+  invalidCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Geçersiz numara sayısı'
+  },
+  blockedCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Engellenmiş numara sayısı'
+  },
+  // Operator bilgileri
+  turkcellCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Turkcell operatörü sayısı'
+  },
+  vodafoneCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Vodafone operatörü sayısı'
+  },
+  turktelekomCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Türk Telekom operatörü sayısı'
   }
 }, {
   tableName: 'sms_campaigns',
@@ -160,7 +209,8 @@ const SMSMessage = sequelize.define('SMSMessage', {
     defaultValue: 'pending'
   },
   deliveryReportId: {
-    type: DataTypes.STRING(100)
+    type: DataTypes.STRING(100),
+    comment: 'TurkeySMS rapor ID\'si'
   },
   cost: {
     type: DataTypes.DECIMAL(5, 4),

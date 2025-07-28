@@ -1,4 +1,4 @@
-// src/routes/admin.js
+// src/routes/admin.js - RAPORLAMA ENDPOİNT'LERİ EKLENDİ
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
@@ -6,6 +6,7 @@ const { User, SMSCampaign, SMSMessage, BalanceTransaction } = require('../models
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
+const smsService = require('../services/smsService'); // SMS servisini import et
 
 const router = express.Router();
 
@@ -426,7 +427,7 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
-// SMS raporları
+// SMS raporları - RAPORLAMA BİLGİLERİ EKLENDİ
 router.get('/sms-reports', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -457,7 +458,7 @@ router.get('/sms-reports', async (req, res) => {
     }
 
     const { count, rows: campaigns } = await SMSCampaign.findAndCountAll({
-      where: campaignWhere,
+      where: { ...campaignWhere, ...whereConditions },
       limit,
       offset,
       order: [['createdAt', 'DESC']],
@@ -470,14 +471,37 @@ router.get('/sms-reports', async (req, res) => {
         {
           model: SMSMessage,
           as: 'messages',
-          where: whereConditions,
           required: false
         }
       ]
     });
 
+    // Kampanyaları raporlama bilgileri ile birlikte döndür
+    const campaignsWithReports = campaigns.map(campaign => ({
+      id: campaign.id,
+      title: campaign.title,
+      messageText: campaign.messageText,
+      totalRecipients: campaign.totalRecipients,
+      successfulSends: campaign.successfulSends,
+      failedSends: campaign.failedSends,
+      cost: campaign.cost,
+      status: campaign.status,
+      createdAt: campaign.createdAt,
+      user: campaign.user,
+      // Raporlama bilgileri
+      reportId: campaign.reportId,
+      lastReportCheck: campaign.lastReportCheck,
+      deliveredCount: campaign.deliveredCount || 0,
+      failedCount: campaign.failedCount || 0,
+      invalidCount: campaign.invalidCount || 0,
+      blockedCount: campaign.blockedCount || 0,
+      turkcellCount: campaign.turkcellCount || 0,
+      vodafoneCount: campaign.vodafoneCount || 0,
+      turktelekomCount: campaign.turktelekomCount || 0
+    }));
+
     res.json({
-      campaigns,
+      campaigns: campaignsWithReports,
       pagination: {
         page,
         limit,
@@ -493,10 +517,6 @@ router.get('/sms-reports', async (req, res) => {
     });
   }
 });
-
-// src/routes/admin.js - SMS ayarları eklendi (sadece yeni endpoint'ler)
-
-// SMS ayarlarını güncelle endpoint'ini ekle (mevcut dosyanın sonuna)
 
 // SMS ayarlarını güncelleme
 router.put('/users/:id/sms-settings', [
@@ -566,7 +586,6 @@ router.post('/test-sms', [
     }
 
     const { phoneNumber, message } = req.body;
-    const smsService = require('../services/smsService');
 
     console.log('🧪 Admin test SMS gönderimi:', { phoneNumber, message });
 
@@ -591,6 +610,146 @@ router.post('/test-sms', [
     res.status(500).json({
       success: false,
       error: 'Test SMS gönderilirken hata oluştu'
+    });
+  }
+});
+
+// YENİ RAPORLAMA ENDPOİNT'LERİ
+
+// Kampanya detaylarını getir
+router.get('/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const campaign = await SMSCampaign.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['username', 'firstName', 'lastName', 'email']
+        },
+        {
+          model: SMSMessage,
+          as: 'messages',
+          order: [['createdAt', 'DESC']]
+        }
+      ]
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        error: 'Kampanya bulunamadı'
+      });
+    }
+
+    res.json({
+      campaign: {
+        id: campaign.id,
+        title: campaign.title,
+        messageText: campaign.messageText,
+        totalRecipients: campaign.totalRecipients,
+        successfulSends: campaign.successfulSends,
+        failedSends: campaign.failedSends,
+        cost: parseFloat(campaign.cost).toFixed(2),
+        status: campaign.status,
+        createdAt: campaign.createdAt,
+        user: campaign.user,
+        // Raporlama bilgileri
+        reportId: campaign.reportId,
+        lastReportCheck: campaign.lastReportCheck,
+        reportData: campaign.reportData,
+        deliveredCount: campaign.deliveredCount || 0,
+        failedCount: campaign.failedCount || 0,
+        invalidCount: campaign.invalidCount || 0,
+        blockedCount: campaign.blockedCount || 0,
+        turkcellCount: campaign.turkcellCount || 0,
+        vodafoneCount: campaign.vodafoneCount || 0,
+        turktelekomCount: campaign.turktelekomCount || 0,
+        messages: campaign.messages.map(msg => ({
+          id: msg.id,
+          phoneNumber: msg.phoneNumber,
+          status: msg.status,
+          cost: parseFloat(msg.cost).toFixed(4),
+          sentAt: msg.sentAt,
+          deliveredAt: msg.deliveredAt,
+          errorMessage: msg.errorMessage
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Kampanya detayları hatası:', error);
+    res.status(500).json({
+      error: 'Kampanya detayları alınırken hata oluştu'
+    });
+  }
+});
+
+// Kampanya raporunu manuel güncelle
+router.post('/campaigns/:id/update-report', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const campaign = await SMSCampaign.findByPk(id);
+    if (!campaign) {
+      return res.status(404).json({
+        error: 'Kampanya bulunamadı'
+      });
+    }
+
+    if (!campaign.reportId) {
+      return res.status(400).json({
+        error: 'Bu kampanya için rapor ID bulunamadı'
+      });
+    }
+
+    // Raporu güncelle
+    await smsService.updateCampaignReport(id);
+
+    // Güncellenmiş kampanyayı getir
+    await campaign.reload();
+
+    res.json({
+      message: 'Kampanya raporu başarıyla güncellendi',
+      reportData: {
+        reportId: campaign.reportId,
+        lastReportCheck: campaign.lastReportCheck,
+        deliveredCount: campaign.deliveredCount,
+        failedCount: campaign.failedCount,
+        status: campaign.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Kampanya rapor güncelleme hatası:', error);
+    res.status(500).json({
+      error: 'Kampanya raporu güncellenirken hata oluştu'
+    });
+  }
+});
+
+// TurkeySMS delivery raporu getir
+router.get('/delivery-report/:reportId', async (req, res) => {
+  try {
+    const { reportId } = req.params;
+
+    const report = await smsService.getDeliveryReport(reportId);
+
+    if (!report) {
+      return res.status(404).json({
+        error: 'Rapor bulunamadı'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: report
+    });
+
+  } catch (error) {
+    console.error('Delivery raporu hatası:', error);
+    res.status(500).json({
+      error: 'Delivery raporu alınırken hata oluştu'
     });
   }
 });

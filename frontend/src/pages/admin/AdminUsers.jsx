@@ -1,3 +1,4 @@
+// src/pages/admin/AdminUsers.jsx - KREDİ SİSTEMİNE GÜNCELLENMİŞ
 import React, { useState } from 'react';
 import {
   Box,
@@ -544,6 +545,7 @@ const AdminUsers = () => {
                       label="Başlangıç Kredisi"
                       type="number"
                       inputProps={{ min: 0, step: 1 }}
+                      helperText="SMS kredisi (1 kredi = 1 SMS)"
                     />
                   )}
                 />
@@ -732,7 +734,7 @@ const AdminUsers = () => {
                       type="number"
                       inputProps={{ min: 1, step: 1 }}
                       error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
+                      helperText={fieldState.error?.message || '1 kredi = 1 SMS gönderimi'}
                     />
                   )}
                 />
